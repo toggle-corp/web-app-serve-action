@@ -162,12 +162,21 @@ runs:
       if: ${{ inputs.helm_publish == 'true' }}
       working-directory: ${{ inputs.helm_chart_directory }}
       shell: bash
+      env:
+        IMAGE_NAME: ${{ steps.prep.outputs.docker_image_name }}
+        IMAGE_TAG: ${{ steps.prep.outputs.docker_image_tag }}
       # values.yaml intentionally omits hostname/ingressClassName, so pass
-      # them here to exercise a full render.
+      # them here to exercise a full render. Also override image.{name,tag}
+      # with the real values the later sed step bakes in: at this point
+      # values.yaml still holds the SET-BY-CICD placeholders, and base chart
+      # 0.1.1's ingress_project_labels helper crashes on slash-less image
+      # names — this renders the post-sed state that actually gets published.
       run: |
         helm template . \
           --set app.ingress.hostname=example.local \
-          --set app.ingress.ingressClassName=nginx
+          --set app.ingress.ingressClassName=nginx \
+          --set app.image.name="$IMAGE_NAME" \
+          --set app.image.tag="$IMAGE_TAG"
 
     - name: ⎈ Tag docker image in Helm Chart values.yaml
       if: ${{ inputs.helm_publish == 'true' }}
