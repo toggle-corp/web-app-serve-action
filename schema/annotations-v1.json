@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/toggle-corp/web-app-serve-action/main/schema/annotations-v1.json",
+  "title": "web-app-serve provenance annotations (schema-version 1)",
+  "description": "JSON Schema for the provenance annotations written by web-app-serve-action into the wrapper chart's `.app.ingress.annotations`. Every key is prefixed with the domain `web-app-serve.togglecorp.com/`; the property names below include that full prefix because that is what appears on a live Ingress object. `schema-version` is the literal that pins this document; bumping it means editing action.yml keys, bumping the literal, and adding a new annotations-v<n>.json (keep the old files).",
+  "type": "object",
+  "properties": {
+    "web-app-serve.togglecorp.com/schema-version": {
+      "type": "string",
+      "const": "1",
+      "description": "Annotation schema version. Literal set by the action; identifies which annotations-v<n>.json describes this object."
+    },
+    "web-app-serve.togglecorp.com/repo-url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Source repository URL: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}."
+    },
+    "web-app-serve.togglecorp.com/ref": {
+      "type": "string",
+      "description": "Git ref name that triggered the build (github.ref_name), e.g. a branch or tag name."
+    },
+    "web-app-serve.togglecorp.com/ref-type": {
+      "type": "string",
+      "enum": ["branch", "tag"],
+      "description": "Type of the triggering ref (github.ref_type)."
+    },
+    "web-app-serve.togglecorp.com/commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full 40-character commit SHA (github.sha)."
+    },
+    "web-app-serve.togglecorp.com/commit-message": {
+      "type": "string",
+      "description": "Subject line of the built commit (git log -1 --pretty=%s)."
+    },
+    "web-app-serve.togglecorp.com/datetime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "Build timestamp in UTC ISO 8601 (date -u +%Y-%m-%dT%H:%M:%SZ)."
+    },
+    "web-app-serve.togglecorp.com/image-label": {
+      "type": "string",
+      "description": "Docker image tag/label, e.g. develop.c3f9c2ab."
+    },
+    "web-app-serve.togglecorp.com/image-url": {
+      "type": "string",
+      "description": "Fully-qualified image reference: ghcr.io/<owner>/<repo>:<tag>."
+    },
+    "web-app-serve.togglecorp.com/actor": {
+      "type": "string",
+      "description": "GitHub actor who triggered the run (github.actor)."
+    },
+    "web-app-serve.togglecorp.com/actor-image-url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Avatar URL of the actor: https://github.com/<actor>.png."
+    },
+    "web-app-serve.togglecorp.com/repo-owner-image-url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Avatar URL of the repository owner: https://github.com/<owner>.png."
+    },
+    "web-app-serve.togglecorp.com/ci-run-url": {
+      "type": "string",
+      "format": "uri",
+      "description": "CI run URL: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+    },
+    "web-app-serve.togglecorp.com/pr-number": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Optional. Associated pull request number, resolved from the commit via `gh api`. Omitted when the commit has no PR."
+    },
+    "web-app-serve.togglecorp.com/pr-author": {
+      "type": "string",
+      "description": "Optional. Login of the pull request author. Omitted when the commit has no PR."
+    },
+    "web-app-serve.togglecorp.com/pr-author-image-url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Optional. Avatar URL of the PR author: https://github.com/<pr-author>.png. Omitted when the commit has no PR."
+    }
+  },
+  "required": [
+    "web-app-serve.togglecorp.com/schema-version",
+    "web-app-serve.togglecorp.com/repo-url",
+    "web-app-serve.togglecorp.com/ref",
+    "web-app-serve.togglecorp.com/ref-type",
+    "web-app-serve.togglecorp.com/commit",
+    "web-app-serve.togglecorp.com/commit-message",
+    "web-app-serve.togglecorp.com/datetime",
+    "web-app-serve.togglecorp.com/image-label",
+    "web-app-serve.togglecorp.com/image-url",
+    "web-app-serve.togglecorp.com/actor",
+    "web-app-serve.togglecorp.com/actor-image-url",
+    "web-app-serve.togglecorp.com/repo-owner-image-url",
+    "web-app-serve.togglecorp.com/ci-run-url"
+  ]
+}

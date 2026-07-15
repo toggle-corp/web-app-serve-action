@@ -9,6 +9,16 @@ inputs:
   docker_target:
     description: "docker target for web-app-serve"
     default: web-app-serve
+  # Helm
+  helm_publish:
+    description: "Master gate: build, package and push the wrapper Helm chart to GHCR"
+    default: "true"
+  helm_chart_directory:
+    description: "Path to the Helm chart directory (relative to the repo root)"
+    default: web-app-serve/helm
+  helm_annotations_path:
+    description: "values.yaml path to write web-app-serve.togglecorp.com/* provenance annotations. The parent node must already exist or the step fails."
+    default: .app.ingress.annotations
 
 outputs:
   # Docker
@@ -21,6 +31,16 @@ outputs:
   docker_image:
     description: "docker image with tag"
     value: ${{ steps.prep.outputs.docker_image }}
+  # Helm
+  helm_repo_url:
+    description: "Helm repo URL"
+    value: ${{ steps.helm_push.outputs.helm_repo_url }}
+  helm_chart:
+    description: "Helm Chart"
+    value: ${{ steps.helm_push.outputs.helm_chart }}
+  helm_target_revision:
+    description: "Helm target revision"
+    value: ${{ steps.helm_push.outputs.helm_target_revision }}
 
 runs:
   using: "composite"
@@ -114,3 +134,190 @@ runs:
         echo "::notice::Docker image: $DOCKER_IMAGE"
         echo "::notice::Docker tag: $DOCKER_IMAGE_TAG"
         echo "::notice::Docker name: $DOCKER_IMAGE_NAME"
+
+    # ------------------------------------------------------------------ #
+    # Helm publish (gated on helm_publish == 'true'). Reuses the GHCR
+    # login performed above and consumes steps.prep.outputs.docker_*.
+    # ------------------------------------------------------------------ #
+    - name: ⎈ Install Helm
+      if: ${{ inputs.helm_publish == 'true' }}
+      uses: azure/setup-helm@v5
+
+    - name: ⎈ Helm dependency
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      # NOTE: base chart is PUBLIC (oci://ghcr.io/toggle-corp) — no registry
+      # login needed to pull it. `update` (not `build`) so the wrapper needs no
+      # committed Chart.lock; the dep is exact-pinned so this stays reproducible.
+      run: helm dependency update .
+
+    - name: ⎈ Helm lint
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      run: helm lint .
+
+    - name: ⎈ Helm template (smoke render)
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      # values.yaml intentionally omits hostname/ingressClassName, so pass
+      # them here to exercise a full render.
+      run: |
+        helm template . \
+          --set app.ingress.hostname=example.local \
+          --set app.ingress.ingressClassName=nginx
+
+    - name: ⎈ Tag docker image in Helm Chart values.yaml
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ steps.prep.outputs.docker_image_name }}
+        IMAGE_TAG: ${{ steps.prep.outputs.docker_image_tag }}
+      run: |
+        sed -i "s|SET-BY-CICD-IMAGE|$IMAGE_NAME|" values.yaml
+        sed -i "s/SET-BY-CICD-TAG/$IMAGE_TAG/" values.yaml
+
+    - name: ⎈ Write provenance annotations to Helm Chart values.yaml
+      if: ${{ inputs.helm_publish == 'true' && inputs.helm_annotations_path != '' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        ANNOTATIONS_PATH: ${{ inputs.helm_annotations_path }}
+        IMAGE_NAME: ${{ steps.prep.outputs.docker_image_name }}
+        IMAGE_TAG: ${{ steps.prep.outputs.docker_image_tag }}
+        IMAGE_REF: ${{ steps.prep.outputs.docker_image }}
+      run: |
+        set -euo pipefail
+
+        # Fail loudly if the chart does not follow the expected convention,
+        # rather than letting yq silently create a bogus nested tree.
+        PARENT="${ANNOTATIONS_PATH%.*}"
+        if ! yq -e "$PARENT" values.yaml >/dev/null 2>&1; then
+          echo "::error::helm_annotations_path parent '$PARENT' does not exist in values.yaml. Fix the chart or set helm_annotations_path to '' to disable."
+          exit 1
+        fi
+
+        # -- Provenance values (exported so yq strenv() can read them safely) --
+        export SCHEMA_VERSION="1"
+        export REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+        export COMMIT="${GITHUB_SHA}"
+        export REF="${GITHUB_REF_NAME}"
+        export REF_TYPE="${GITHUB_REF_TYPE}"
+        export DATETIME COMMIT_MESSAGE
+        DATETIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        # Degrade gracefully under `set -e` if the caller used a shallow/lock-less
+        # checkout; the caller should `actions/checkout` before invoking this action.
+        COMMIT_MESSAGE="$(git log -1 --pretty=%s 2>/dev/null || echo '')"
+        export IMAGE_LABEL="${IMAGE_TAG}"
+        export IMAGE_URL="${IMAGE_REF}"
+        export ACTOR="${GITHUB_ACTOR}"
+        export ACTOR_IMAGE_URL="https://github.com/${GITHUB_ACTOR}.png"
+        export CI_RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        export REPO_OWNER_IMAGE_URL="https://github.com/${GITHUB_REPOSITORY_OWNER}.png"
+
+        P="$ANNOTATIONS_PATH"
+        A="web-app-serve.togglecorp.com"
+        EXPR="${P}.\"${A}/schema-version\" = strenv(SCHEMA_VERSION)"
+        EXPR="${EXPR} | ${P}.\"${A}/repo-url\" = strenv(REPO_URL)"
+        EXPR="${EXPR} | ${P}.\"${A}/ref\" = strenv(REF)"
+        EXPR="${EXPR} | ${P}.\"${A}/ref-type\" = strenv(REF_TYPE)"
+        EXPR="${EXPR} | ${P}.\"${A}/commit\" = strenv(COMMIT)"
+        EXPR="${EXPR} | ${P}.\"${A}/commit-message\" = strenv(COMMIT_MESSAGE)"
+        EXPR="${EXPR} | ${P}.\"${A}/datetime\" = strenv(DATETIME)"
+        EXPR="${EXPR} | ${P}.\"${A}/image-label\" = strenv(IMAGE_LABEL)"
+        EXPR="${EXPR} | ${P}.\"${A}/image-url\" = strenv(IMAGE_URL)"
+        EXPR="${EXPR} | ${P}.\"${A}/actor\" = strenv(ACTOR)"
+        EXPR="${EXPR} | ${P}.\"${A}/actor-image-url\" = strenv(ACTOR_IMAGE_URL)"
+        EXPR="${EXPR} | ${P}.\"${A}/repo-owner-image-url\" = strenv(REPO_OWNER_IMAGE_URL)"
+        EXPR="${EXPR} | ${P}.\"${A}/ci-run-url\" = strenv(CI_RUN_URL)"
+
+        # PR metadata: helm publishes on push/tag (no PR context), so resolve
+        # the PR from the commit. Omit these keys when the commit has no PR.
+        # Requires `pull-requests: read`; a failed API call is surfaced (not
+        # silently treated as "no PR") so a missing scope is diagnosable.
+        if PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0] // empty' 2>/tmp/gh_pr_err)"; then
+          if [ -n "$PR_JSON" ]; then
+            export PR_NUMBER PR_AUTHOR PR_AUTHOR_IMAGE_URL
+            PR_NUMBER="$(echo "$PR_JSON" | jq -r '.number')"
+            PR_AUTHOR="$(echo "$PR_JSON" | jq -r '.user.login')"
+            PR_AUTHOR_IMAGE_URL="https://github.com/${PR_AUTHOR}.png"
+            EXPR="${EXPR} | ${P}.\"${A}/pr-number\" = strenv(PR_NUMBER)"
+            EXPR="${EXPR} | ${P}.\"${A}/pr-author\" = strenv(PR_AUTHOR)"
+            EXPR="${EXPR} | ${P}.\"${A}/pr-author-image-url\" = strenv(PR_AUTHOR_IMAGE_URL)"
+          else
+            echo "::notice::No PR associated with ${GITHUB_SHA}; skipping pr-* annotations."
+          fi
+        else
+          echo "::warning::Could not query PRs for ${GITHUB_SHA} (does the token have 'pull-requests: read'?); skipping pr-* annotations. $(cat /tmp/gh_pr_err)"
+        fi
+
+        yq -i "$EXPR" values.yaml
+
+        echo "Wrote provenance annotations under ${P}:"
+        yq "${P}" values.yaml
+
+    - name: ⎈ Package Helm Chart
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      env:
+        IMAGE_TAG: ${{ steps.prep.outputs.docker_image_tag }}
+      run: |
+        if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+          TAG="-$(echo "$GITHUB_SHA" | head -c7)"
+          sed -i "s/-SET-BY-CICD/$TAG/g" Chart.yaml
+        else
+          if [[ "$GITHUB_REF_NAME" == *"/"* ]]; then
+            sed -i 's/^\(name:.*\)-helm$/\1-dev-helm/' Chart.yaml
+          fi
+          sed -i "s/SET-BY-CICD/$IMAGE_TAG/g" Chart.yaml
+        fi
+        mkdir -p .helm-charts
+        helm package . -d .helm-charts
+
+    - name: ⎈ Push Helm Chart
+      id: helm_push
+      if: ${{ inputs.helm_publish == 'true' }}
+      working-directory: ${{ inputs.helm_chart_directory }}
+      shell: bash
+      env:
+        IMAGE: ${{ steps.prep.outputs.docker_image }}
+        OCI_REPO: oci://ghcr.io/${{ github.repository_owner }}
+      run: |
+        # Ensure OCI_REPO is lowercase
+        OCI_REPO="${OCI_REPO,,}"
+
+        # Safely get the first .tgz file
+        PACKAGE_FILE=$(find .helm-charts -maxdepth 1 -name '*.tgz' | head -n 1)
+
+        HELM_CHART=$(helm show chart "$PACKAGE_FILE" | grep '^name:' | awk '{print $2}')
+        HELM_TARGET_REVISION=$(helm show chart "$PACKAGE_FILE" | grep '^version:' | awk '{print $2}')
+
+        {
+          echo "# Helm Chart"
+          echo ""
+          echo '```yaml'
+          helm push "$PACKAGE_FILE" "$OCI_REPO" 2>&1
+          echo '```'
+
+          echo "> [!IMPORTANT]"
+          echo "> Helm Repo URL: **$OCI_REPO**"
+          echo "> Helm Chart: **$HELM_CHART**"
+          echo "> Helm Target Revision: **$HELM_TARGET_REVISION**"
+          echo "> Docker image: **$IMAGE**"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        # Annotations
+        echo "::notice::Helm Repo URL: $OCI_REPO"
+        echo "::notice::Helm Chart: $HELM_CHART"
+        echo "::notice::Helm Target Revision: $HELM_TARGET_REVISION"
+
+        {
+          echo "helm_repo_url=$OCI_REPO"
+          echo "helm_chart=$HELM_CHART"
+          echo "helm_target_revision=$HELM_TARGET_REVISION"
+        } >> "$GITHUB_OUTPUT"
