@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.0](https://github.com/toggle-corp/web-app-serve-action/compare/v0.1.1..v0.2.0) - 2026-07-16
+### Changes:
+
+#### 🚀  Features
+
+- Add gated helm chart publish with provenance annotations - ([87dfab4](https://github.com/toggle-corp/web-app-serve-action/commit/87dfab4601b25c042fd50516d988468531cfb406))
+
+#### 🐛 Bug Fixes
+
+- Pass real image name/tag to helm smoke render - ([14591a1](https://github.com/toggle-corp/web-app-serve-action/commit/14591a1e84cfe0b3f2239b969a13cacc17aa8d14))
+
+### 🍻 Pull Requests (1)
+- (#1) [Feat: add gated helm chart publish with provenance annotations](https://github.com/toggle-corp/web-app-serve-action/pull/1)
+
+
 ## [0.1.1] - 2025-07-09
 ### Changes:
 
