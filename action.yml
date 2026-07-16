@@ -9,6 +9,9 @@ inputs:
   docker_target:
     description: "docker target for web-app-serve"
     default: web-app-serve
+  push:
+    description: "Push the built image and Helm chart to GHCR. Set 'false' for a dry-run (build + lint + smoke-render + package only) — used by PR CI to exercise the action without registry writes."
+    default: "true"
   # Helm
   helm_publish:
     description: "Master gate: build, package and push the wrapper Helm chart to GHCR"
@@ -96,7 +99,7 @@ runs:
         builder: ${{ steps.buildx.outputs.name }}
         file: Dockerfile
         target: ${{ inputs.docker_target }}
-        push: true
+        push: ${{ inputs.push == 'true' }}
         provenance: false  # XXX: Without this we have untagged images in ghcr.io
         tags: ${{ steps.prep.outputs.docker_image }}
         cache-from: type=gha
@@ -278,7 +281,7 @@ runs:
 
     - name: ⎈ Push Helm Chart
       id: helm_push
-      if: ${{ inputs.helm_publish == 'true' }}
+      if: ${{ inputs.helm_publish == 'true' && inputs.push == 'true' }}
       working-directory: ${{ inputs.helm_chart_directory }}
       shell: bash
       env:

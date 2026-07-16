@@ -1,0 +1,38 @@
+name: Test action
+
+# Exercises action.yml end-to-end against the fixtures under examples/ so a
+# change to the action is validated before release. Runs as a dry-run
+# (push: false) — builds the image, then lints, smoke-renders, annotates and
+# packages the Helm chart, but pushes nothing to GHCR. Safe for fork PRs.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read        # pull the public base chart
+  pull-requests: read   # provenance annotation writer resolves the PR
+
+jobs:
+  test-action:
+    name: Dry-run action against examples/
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Stage example Dockerfile at repo root
+        # The action builds with a hardcoded context (.) and file (Dockerfile),
+        # so the fixture Dockerfile has to live at the workspace root at runtime.
+        run: cp examples/Dockerfile ./Dockerfile
+
+      - name: Run action (dry-run, no push)
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          push: "false"
+          docker_target: web-app-serve
+          helm_publish: "true"
+          helm_chart_directory: examples/helm
+          helm_annotations_path: .app.ingress.annotations
