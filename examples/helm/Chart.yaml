@@ -1,0 +1,15 @@
+apiVersion: v2
+# Name ends with `-helm` — the action's Package step rewrites this on
+# slash-bearing refs (e.g. PR merge refs) to `...-dev-helm`.
+name: web-app-serve-example-helm
+description: Example wrapper chart used to exercise web-app-serve-action in CI.
+type: application
+# `SET-BY-CICD` is replaced by the action's Package step with the image tag.
+version: 0.0.0-SET-BY-CICD
+dependencies:
+  # Base chart pulled from GHCR and aliased `app`, which is why the wrapper's
+  # values live under `.app.*`.
+  - name: web-app-serve-helm
+    version: 0.1.1
+    repository: oci://ghcr.io/toggle-corp
+    alias: app

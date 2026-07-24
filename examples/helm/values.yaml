@@ -1,0 +1,13 @@
+# Example values for the fixture wrapper chart. The base chart is aliased
+# `app`, so all of its values nest under `app:`.
+app:
+  image:
+    # Placeholders overwritten by the action's "Tag docker image" step.
+    name: SET-BY-CICD-IMAGE
+    tag: SET-BY-CICD-TAG
+  ingress:
+    # Parent node for the provenance annotations the action writes at
+    # `.app.ingress.annotations`. Must exist or the action fails loudly.
+    annotations: {}
+    # hostname / ingressClassName intentionally omitted here — the action's
+    # smoke-render step passes them via --set.

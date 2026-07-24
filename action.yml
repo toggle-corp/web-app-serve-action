@@ -9,6 +9,9 @@ inputs:
   docker_target:
     description: "docker target for web-app-serve"
     default: web-app-serve
+  push:
+    description: "Push the built image and Helm chart to GHCR. Set 'false' for a dry-run (build + lint + smoke-render + package only) — used by PR CI to exercise the action without registry writes."
+    default: "true"
   # Helm
   helm_publish:
     description: "Master gate: build, package and push the wrapper Helm chart to GHCR"
@@ -46,7 +49,7 @@ runs:
   using: "composite"
   steps:
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -58,6 +61,8 @@ runs:
         DOCKER_IMAGE_NAME: ghcr.io/${{ github.repository }}
       shell: bash
       run: |
+        set -euo pipefail
+
         BRANCH_NAME=$(\
           echo $GITHUB_REF_NAME | \
           sed 's|:|-|' | \
@@ -85,36 +90,20 @@ runs:
 
     - name: 🐳 Set up Docker Buildx
       id: buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
-    - name: 🐳 Cache Docker layers
-      uses: actions/cache@v4
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.ref }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-refs/develop
-          ${{ runner.os }}-buildx-
-
-    - name: 🐳 Docker build
-      uses: docker/build-push-action@v6
+    - name: 🐳 Docker build and push
+      uses: docker/build-push-action@v7
       with:
         context: .
         builder: ${{ steps.buildx.outputs.name }}
         file: Dockerfile
         target: ${{ inputs.docker_target }}
-        push: false
-        load: true
+        push: ${{ inputs.push == 'true' }}
         provenance: false  # XXX: Without this we have untagged images in ghcr.io
         tags: ${{ steps.prep.outputs.docker_image }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-    - name: 🐳 Docker push
-      run: docker push $DOCKER_IMAGE
-      shell: bash
-      env:
-        DOCKER_IMAGE: ${{ steps.prep.outputs.docker_image }}
 
     - name: 🐳 Summary/Annotations generate
       shell: bash
@@ -276,6 +265,8 @@ runs:
       env:
         IMAGE_TAG: ${{ steps.prep.outputs.docker_image_tag }}
       run: |
+        set -euo pipefail
+
         if [[ "$GITHUB_REF" == refs/tags/* ]]; then
           TAG="-$(echo "$GITHUB_SHA" | head -c7)"
           sed -i "s/-SET-BY-CICD/$TAG/g" Chart.yaml
@@ -290,7 +281,7 @@ runs:
 
     - name: ⎈ Push Helm Chart
       id: helm_push
-      if: ${{ inputs.helm_publish == 'true' }}
+      if: ${{ inputs.helm_publish == 'true' && inputs.push == 'true' }}
       working-directory: ${{ inputs.helm_chart_directory }}
       shell: bash
       env:
